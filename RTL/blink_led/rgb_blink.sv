@@ -1,14 +1,13 @@
 // ===========================================================================
 // 8‑bit  HSV  ➜ 8‑bit RGB converter (3‑stage pipeline, 1‑pixel/clk)
 // ----------------------------------------------------------------------------
-// Author:  <your name>, 2025
+// Author:  Joey Nelson, 2025
 // License: MIT / CC‑BY‑SA
 // ============================================================================
 
 module hsv2rgb_8u
 (
     input  wire         clk,          // system clock
-    input  wire         rst,          // synchronous reset (active‑high)
 
     // Input interface --------------------------------------------------------
     input  wire          in_valid,     // 1‑clk strobe that hsv_in is valid
@@ -16,7 +15,6 @@ module hsv2rgb_8u
                                         // H, S, V are unsigned 0‑255
 
     // Output interface -------------------------------------------------------
-    output reg         out_valid,    // 1‑clk strobe that rgb_out is valid
     output reg [7:0]   red_out,
     output reg [7:0]   green_out,
     output reg [7:0]   blue_out
@@ -29,31 +27,22 @@ module hsv2rgb_8u
     //  -> Multiply H by 6 to obtain 0‑1535; top three MSBs give sector 0‑5,
     //     lower 8 bits give fractional part (0‑255) for interpolation.
     // ------------------------------------------------------------------------
-    reg        st0_valid;
     reg [2:0]  st0_sector;   // 0‑5
     reg [7:0]  st0_frac;     // 0‑255
     reg [7:0]  st0_S, st0_V;
     reg [10:0] h6;
 
     always @(posedge clk) begin
-        if (rst) begin
-            st0_valid <= 1'b0;
-        end
-        else begin
-            st0_valid <= in_valid;
 
-            if (in_valid) begin
-                st0_S      <= hsv_in[15:8];
-                st0_V      <= hsv_in[7:0];
+      st0_S      <= hsv_in[15:8];
+      st0_V      <= hsv_in[7:0];
 
-                // multiply by 6: {8'h0, H} * 6 =  +<<1 and +<<2
-                // Keep top 11 bits → [sector(2:0), frac(7:0)]
-                h6          = {3'b000, hsv_in[23:16]} * 6;   // 8*6 = 11 bits
-                st0_sector  <= h6[10:8];
-                st0_frac    <= h6[7:0];
-            end
-        end
-    end
+      // multiply by 6: {8'h0, H} * 6 =  +<<1 and +<<2
+      // Keep top 11 bits → [sector(2:0), frac(7:0)]
+      h6          = {3'b000, hsv_in[23:16]} * 6;   // 8*6 = 11 bits
+      st0_sector  <= h6[10:8];
+      st0_frac    <= h6[7:0];
+   end
 
     // ------------------------------------------------------------------------
     // Stage 1 : compute the three auxiliary values p,q,t (8‑bit each)
@@ -65,7 +54,6 @@ module hsv2rgb_8u
     //   S, V, f are 0‑255 → treat as 8‑bit unsigned (range 0‑1 in Q0.8)
     //   All products use 16‑bit intermediate with rounding to 8 bits.
     // ------------------------------------------------------------------------
-    reg        st1_valid;
     reg [2:0]  st1_sector;
     reg [7:0]  st1_p, st1_q, st1_t, st1_V;
     reg [7:0]  invS, Sf, Sf1;
@@ -80,28 +68,20 @@ module hsv2rgb_8u
     endfunction
 
     always @(posedge clk) begin
-        if (rst) begin
-            st1_valid <= 1'b0;
-        end
-        else begin
-            st1_valid  <= st0_valid;
-            st1_sector <= st0_sector;
-            st1_V      <= st0_V;
+      st1_sector <= st0_sector;
+      st1_V      <= st0_V;
 
-            if (st0_valid) begin
-                // 1‑S
-                invS = 8'd255 - st0_S;
-                st1_p = mul8x8_q0p8(st0_V, invS);
+      // 1‑S
+      invS = 8'd255 - st0_S;
+      st1_p = mul8x8_q0p8(st0_V, invS);
 
-                // S * f   (f in Q0.8)
-                Sf   = mul8x8_q0p8(st0_S, st0_frac);
-                // S*(1‑f)
-                Sf1  = mul8x8_q0p8(st0_S, 8'd255 - st0_frac);
+      // S * f   (f in Q0.8)
+      Sf   = mul8x8_q0p8(st0_S, st0_frac);
+      // S*(1‑f)
+      Sf1  = mul8x8_q0p8(st0_S, 8'd255 - st0_frac);
 
-                st1_q = mul8x8_q0p8(st0_V, 8'd255 - Sf);
-                st1_t = mul8x8_q0p8(st0_V, 8'd255 - Sf1);
-            end
-        end
+      st1_q = mul8x8_q0p8(st0_V, 8'd255 - Sf);
+      st1_t = mul8x8_q0p8(st0_V, 8'd255 - Sf1);
     end
 
     // ------------------------------------------------------------------------
@@ -111,35 +91,38 @@ module hsv2rgb_8u
     reg [7:0]  st2_R, st2_G, st2_B;
 
     always @(posedge clk) begin
-        if (rst) begin
-            st2_valid <= 1'b0;
-        end
-        else begin
-            st2_valid <= st1_valid;
-
-            if (st1_valid) begin
                 case (st1_sector)
                     3'd0 : begin
-                            st2_R <= st1_V;  st2_G <= st1_t;  st2_B <= st1_p;
+                            st2_R <= st1_V;  
+                            st2_G <= st1_t;  
+                            st2_B <= st1_p;
                           end
                     3'd1 : begin
-                            st2_R <= st1_q;  st2_G <= st1_V;  st2_B <= st1_p;
+                            st2_R <= st1_q;  
+                            st2_G <= st1_V;  
+                            st2_B <= st1_p;
                           end
                     3'd2 : begin
-                            st2_R <= st1_p;  st2_G <= st1_V;  st2_B <= st1_t;
+                            st2_R <= st1_p;  
+                            st2_G <= st1_V;  
+                            st2_B <= st1_t;
                           end
                     3'd3 : begin
-                            st2_R <= st1_p;  st2_G <= st1_q;  st2_B <= st1_V;
+                            st2_R <= st1_p;  
+                            st2_G <= st1_q;  
+                            st2_B <= st1_V;
                           end
                     3'd4 : begin
-                            st2_R <= st1_t;  st2_G <= st1_p;  st2_B <= st1_V;
+                            st2_R <= st1_t;  
+                            st2_G <= st1_p;  
+                            st2_B <= st1_V;
                           end
                     default : begin // sector 5
-                            st2_R <= st1_V;  st2_G <= st1_p;  st2_B <= st1_q;
+                            st2_R <= st1_V;  
+                            st2_G <= st1_p;  
+                            st2_B <= st1_q;
                           end
                 endcase
-            end
-        end
     end
 
     // ------------------------------------------------------------------------
@@ -148,15 +131,9 @@ module hsv2rgb_8u
     // st2_* signals.
     // ------------------------------------------------------------------------
     always @(posedge clk) begin
-        if (rst) begin
-            out_valid <= 1'b0;
-        end
-        else begin
-            out_valid <= st2_valid;
             red_out <= st2_R;
             green_out <= st2_G;
             blue_out <= st2_B;
-        end
     end
 
  endmodule
@@ -185,7 +162,7 @@ module rgb_blink (
 //                                                                          --
 //----------------------------------------------------------------------------
   SB_HFOSC u_SB_HFOSC (.CLKHFPU(1'b1), .CLKHFEN(1'b1), .CLKHF(int_osc));
-
+  defparam u_SB_HFOSC.CLKHF_DIV = "0b01";
 
 //----------------------------------------------------------------------------
 //                                                                          --
@@ -202,10 +179,7 @@ module rgb_blink (
 
   hsv2rgb_8u  hsv2rgb (
     .clk(int_osc),
-    .rst(0),
-    .in_valid(1),
-    .hsv_in(freqency_counter_i[27:20]),
-    .out_valid(),
+    .hsv_in({frequency_counter_i[27:20], 8'hff, 8'hff}),
     .red_out(r),
     .green_out(g),
     .blue_out(b)
