@@ -151,10 +151,14 @@ module rgb_blink (
 );
 
   wire        int_osc            ;
-  reg  [27:0] frequency_counter_i;
+  reg  [14:0] frequency_counter_i;
   reg  [7:0] pwm_count;
   wire  [7:0] r,g,b;
   reg        ron,gon,bon;
+  reg [7:0] hue,val;
+  reg [3:0] hcount, vcount;
+  reg v_dir;
+
 
 //----------------------------------------------------------------------------
 //                                                                          --
@@ -162,7 +166,7 @@ module rgb_blink (
 //                                                                          --
 //----------------------------------------------------------------------------
   SB_HFOSC u_SB_HFOSC (.CLKHFPU(1'b1), .CLKHFEN(1'b1), .CLKHF(int_osc));
-  defparam u_SB_HFOSC.CLKHF_DIV = "0b01";
+  defparam u_SB_HFOSC.CLKHF_DIV = "0b10";
 
 //----------------------------------------------------------------------------
 //                                                                          --
@@ -171,7 +175,32 @@ module rgb_blink (
 //----------------------------------------------------------------------------
   always @(posedge int_osc) begin
     frequency_counter_i <= frequency_counter_i + 1;
-    pwm_count <= frequency_counter_i[18:11];
+    pwm_count <= frequency_counter_i[14:7];
+    if(frequency_counter_i == 0) begin
+      hcount <= hcount == 14 ? 0 : hcount + 1;
+      vcount <= vcount == 3 ? 0 : vcount + 1;
+      if(hcount == 0) begin
+        hue <= hue + 1;
+      end
+      if(vcount == 0) begin
+        if(v_dir) begin
+          if(val == 255) begin
+            v_dir = ~v_dir;
+          end
+          else begin
+            val <= val + 1;
+          end
+        end
+        else begin
+          if(val == 0) begin
+            v_dir = ~v_dir;
+          end else begin
+            val <= val - 1;
+          end
+        end
+      end
+    end
+
     ron <= r >= pwm_count;
     gon <= g >= pwm_count;
     bon <= b >= pwm_count;
@@ -179,7 +208,7 @@ module rgb_blink (
 
   hsv2rgb_8u  hsv2rgb (
     .clk(int_osc),
-    .hsv_in({frequency_counter_i[27:20], 8'hff, 8'hff}),
+    .hsv_in({hue, 8'hff, val}),
     .red_out(r),
     .green_out(g),
     .blue_out(b)
